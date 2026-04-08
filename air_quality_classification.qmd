@@ -1,0 +1,200 @@
+---
+title: "Air Quality Classification"
+format: html
+editor: visual
+self-contained: TRUE
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+library(caret)
+library(e1071)
+library(randomForest)
+
+pol_data = read.csv("air_quality.csv")
+pol_data$Air.Quality = as.factor(pol_data$Air.Quality)
+
+set.seed(25)
+# Stratified train/test split
+trainIndex = createDataPartition(pol_data$Air.Quality, p = 0.8, list=FALSE)
+
+train = pol_data[trainIndex, ]
+test = pol_data[-trainIndex, ]
+
+preProc = preProcess(train, method = c("center", "scale"))
+train_scaled = predict(preProc, train)
+test_scaled = predict(preProc, test)
+
+```
+
+## Introduction
+
+-   This project analyzes an air quality dataset to classify observations into four categories of air quality using machine learning models. Support Vector Machine (SVM) models with linear, polynomial, and radial kernels, along with a Random Forest model, were developed to evaluate performance across different modeling approaches.
+
+-   The objective is to compare model performance and understand how feature relationships and dataset characteristics influence classification accuracy.
+
+## Exploratory Data Analysis
+
+### Data Quality and Feature Characteristics
+
+-   A summary of the dataset indicates that predictor variables operate on different scales, with some features (e.g., PM2.5, PM10) exhibiting much larger ranges than others, such as CO, motivating the use of feature standardization for SVM models.
+
+-   The data contained no missing values, but a small number of negative values were observed in PM10 and SO2 measurements (\<1%). Given their low frequency and the modeling approaches used, these values were retained without modification.
+
+```{r}
+summary(pol_data[sapply(pol_data, is.numeric)])
+
+```
+
+### Class Distribution
+
+-   The distribution of air quality classes is moderately imbalanced. This will be accounted for when splitting the data into testing and training sets.
+
+```{r}
+barplot(table(pol_data$Air.Quality),
+        main = "Distribution of Air Quality Classes",
+        ylab = "Count")
+```
+
+### Feature Relationships
+
+-   Due to the high correlation between PM2.5 and PM10 (\~97%), these variables are likely to provide overlapping information. Both were retained to preserve pollutant-specific interpretability.
+
+-   To better understand how predictor variables relate to air quality categories, CO levels were examined across classes due to their relevance in measuring air pollution. CO values show clear separation between categories, with higher levels associated with poorer air quality.
+
+-   Some overlap is observed between adjacent categories, particularly Moderate and Poor.
+
+```{r}
+cor_matrix = cor(pol_data[sapply(pol_data, is.numeric)])
+cor_matrix["PM2.5", "PM10"]
+
+boxplot(CO ~ Air.Quality, data = pol_data,
+        main = "CO Levels by Air Quality Category",
+        ylab = "CO")
+
+```
+
+## Methodology
+
+-   The dataset was split into training and testing sets using stratified sampling (80/20) to preserve class distribution across all air quality categories.
+
+-   A random seed is set for reproducibility for all models.
+
+-   Predictor variables were standardized for Support Vector Machine (SVM) models using training set statistics to ensure consistent scaling and prevent data leakage. Random Forest models were trained on the original feature space, as tree-based methods are invariant to feature scaling.
+
+-   Three SVM models (linear, polynomial, and radial kernels) and a Random Forest model were developed to compare performance across different levels of model complexity.
+
+-   SVM models were tuned using cross-validation to optimize hyperparameters, while the Random Forest model was tuned over different values of the feature-sampling parameter (mtry) using 10-fold cross-validation.
+
+-   Model performance was evaluated on the held-out test set using classification accuracy and class-level metrics.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# Data validation through 10 fold cross validation
+control = trainControl(method = "cv", number = 10)
+
+set.seed(25)
+
+rf_model = train(
+  Air.Quality ~ .,
+  data = train,
+  method = "rf",
+  trControl = control,
+  tuneLength = 5,
+  ntree = 500
+)
+
+# Model prediction accuracy 
+pred_rf = predict(rf_model, test)
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+set.seed(25)
+# Linear model tuned only on cost
+tune_linear <- tune(svm,
+                    Air.Quality ~ .,
+                    data = train_scaled,
+                    kernel = "linear",
+                    ranges = list(
+                      cost = c(0.01, 0.1, 1, 10, 100)
+                    )
+)
+
+best_linear <- tune_linear$best.model
+pred_linear <- predict(best_linear, test_scaled)
+```
+
+## Results
+
+### Model Accuracy
+
+-   All models achieved high overall accuracy, with Random Forest performing best and SVM variants yielding similar results.
+
+```{r}
+results <- data.frame(
+  Model = c("Linear SVM", "Polynomial SVM", "Radial SVM", "Random Forest"),
+  Accuracy = c(0.947, 0.933, 0.949, 0.961)
+)
+
+knitr::kable(results, digits=3)
+```
+
+### Confusion Matrices
+
+-   Confusion matrices for the Linear SVM and Random Forest models are presented below to illustrate class-level performance across models.
+
+**Linear SVM**
+
+```{r}
+#| echo: false
+confusionMatrix(pred_linear, test$Air.Quality)
+```
+
+**Random Forest**
+
+```{r}
+#| echo: false
+confusionMatrix(pred_rf, test$Air.Quality)
+```
+
+### Feature Importance
+
+-   Feature importance from the Random Forest model highlights the relative contribution of predictors to classification performance.
+
+```{r}
+plot(varImp(rf_model))
+```
+
+## Analysis
+
+-   The similar performance between linear and radial SVM suggests that the dataset is largely linearly separable, with limited benefit from more complex kernels.
+
+-   The Random Forest model achieved the highest overall accuracy, indicating its ability to capture nonlinear relationships, although the improvement over SVM models was modest.
+
+-   The high correlation between PM2.5 and PM10 reflects redundancy in the feature set.
+
+-   Model performance varied across classes, with less frequent categories generally exhibiting lower predictive accuracy, highlighting the impact of class imbalance.
+
+-   Feature importance results show that CO and proximity to industrial areas are the dominant predictors of air quality, while PM2.5 and PM10 contribute less despite their strong correlation, suggesting that other pollutants play a larger role in classification.
+
+-   The clear separation of CO values across categories helps explain its high importance in the Random Forest model, while overlap between adjacent classes contributes to classification difficulty.
+
+## Conclusion
+
+-   All models achieved high classification accuracy, with Random Forest providing the best overall performance, though the improvement over SVM models was modest.
+
+-   The similar performance across models suggests that the dataset is well-structured and can be effectively modeled using relatively simple approaches, making linear SVM a viable alternative when model simplicity is preferred
+
+-   Feature importance analysis indicates that CO and proximity to industrial areas are the primary drivers of air quality classification.
