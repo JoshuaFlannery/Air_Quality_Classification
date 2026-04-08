@@ -1,4 +1,4 @@
-[View Full Report](index.html)
+[View Full Report](https://joshuaflannery.github.io/Air_Quality_Classification/)
 
 # Air Quality Classification
 
